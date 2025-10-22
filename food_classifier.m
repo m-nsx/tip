@@ -18,8 +18,16 @@ imds = imageDatastore(trainFolder, ...
 %% =====================================================================
 % Chargement DenseNet201 pré-entraîné
 % =====================================================================
-net = densenet201;
+net = nasnetlarge;
 inputSize = net.Layers(1).InputSize;  % [224 224 3]
+layers = net.Layers;  % <-- AJOUTEZ CETTE LIGNE
+
+% Afficher les 3 dernières couches
+disp('Les 3 dernières couches de NASNet-Large :')
+for i = length(layers)-2:length(layers)
+    fprintf('\nCouche %d: %s\n', i, layers(i).Name);
+    disp(layers(i));
+end
 
 %% =====================================================================
 % Data augmentation géométrique
@@ -46,8 +54,7 @@ augValidation = augmentedImageDatastore(inputSize(1:2), imdsValidation, ...
 lgraph = layerGraph(net);
 numClasses = numel(categories(imdsTrain.Labels));
 
-% ✅ Supprimer LES TROIS couches finales existantes
-lgraph = removeLayers(lgraph, {'fc1000', 'fc1000_softmax', 'ClassificationLayer_fc1000'});
+lgraph = removeLayers(lgraph, {'predictions', 'predictions_softmax', 'ClassificationLayer_predictions'});
 
 % Nouvelles couches de classification
 newLayers = [
@@ -64,7 +71,7 @@ newLayers = [
 lgraph = addLayers(lgraph,newLayers);
 
 % Connexion du dernier bloc DenseNet201 au nouveau fullyConnectedLayer
-lgraph = connectLayers(lgraph,'avg_pool','fc_mid');
+lgraph = connectLayers(lgraph,'global_average_pooling2d_2','fc_mid');
 
 %% =====================================================================
 % Fine-tuning : débloquer les dernières couches
