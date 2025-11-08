@@ -1,5 +1,5 @@
 %% =====================================================================
-% Entraînement DenseNet201
+% Entraînement ResNet18
 % =====================================================================
 
 close all
@@ -16,9 +16,9 @@ imds = imageDatastore(trainFolder, ...
 [imdsTrain, imdsValidation] = splitEachLabel(imds, 0.85, 'randomized');
 
 %% =====================================================================
-% Chargement DenseNet201 pré-entraîné
+% Chargement ResNet18 pré-entraîné
 % =====================================================================
-net = densenet201;
+net = resnet18;
 inputSize = net.Layers(1).InputSize;  % [224 224 3]
 
 %% =====================================================================
@@ -46,12 +46,11 @@ augValidation = augmentedImageDatastore(inputSize(1:2), imdsValidation, ...
 lgraph = layerGraph(net);
 numClasses = numel(categories(imdsTrain.Labels));
 
-% ✅ Supprimer LES TROIS couches finales existantes
-lgraph = removeLayers(lgraph, {'fc1000', 'fc1000_softmax', 'ClassificationLayer_fc1000'});
+lgraph = removeLayers(lgraph, {'fc1000', 'prob', 'ClassificationLayer_predictions'});
 
 % Nouvelles couches de classification
 newLayers = [
-    fullyConnectedLayer(1024,'Name','fc_mid', ...
+    fullyConnectedLayer(512, 'Name','fc_mid', ...
         'WeightLearnRateFactor',5,'BiasLearnRateFactor',5)
     reluLayer('Name','relu_mid')
     dropoutLayer(0.5,'Name','dropout_food')
@@ -61,10 +60,10 @@ newLayers = [
     classificationLayer('Name','output')
 ];
 
-lgraph = addLayers(lgraph,newLayers);
+lgraph = addLayers(lgraph, newLayers);
 
-% Connexion du dernier bloc DenseNet201 au nouveau fullyConnectedLayer
-lgraph = connectLayers(lgraph,'avg_pool','fc_mid');
+% 🔗 Connexion du dernier bloc ResNet18 au nouveau fullyConnectedLayer
+lgraph = connectLayers(lgraph, 'pool5', 'fc_mid');
 
 %% =====================================================================
 % Fine-tuning : débloquer les dernières couches
@@ -72,7 +71,7 @@ lgraph = connectLayers(lgraph,'avg_pool','fc_mid');
 layersToUnfreeze = 10;
 for i = numel(lgraph.Layers)-layersToUnfreeze:numel(lgraph.Layers)
     layer = lgraph.Layers(i);
-    if isprop(layer,'WeightLearnRateFactor')
+    if isprop(layer, 'WeightLearnRateFactor')
         layer.WeightLearnRateFactor = 2;
         layer.BiasLearnRateFactor = 2;
     end
