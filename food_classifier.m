@@ -1,5 +1,5 @@
 %% =====================================================================
-% Entraînement DenseNet201
+% Entraînement EfficientNet-B0
 % =====================================================================
 
 close all
@@ -16,9 +16,9 @@ imds = imageDatastore(trainFolder, ...
 [imdsTrain, imdsValidation] = splitEachLabel(imds, 0.85, 'randomized');
 
 %% =====================================================================
-% Chargement DenseNet201 pré-entraîné
+% Chargement EfficientNet-B0 pré-entraîné
 % =====================================================================
-net = densenet201;
+net = efficientnetb0;
 inputSize = net.Layers(1).InputSize;  % [224 224 3]
 
 %% =====================================================================
@@ -46,8 +46,11 @@ augValidation = augmentedImageDatastore(inputSize(1:2), imdsValidation, ...
 lgraph = layerGraph(net);
 numClasses = numel(categories(imdsTrain.Labels));
 
-% ✅ Supprimer LES TROIS couches finales existantes
-lgraph = removeLayers(lgraph, {'fc1000', 'fc1000_softmax', 'ClassificationLayer_fc1000'});
+% ✅ Supprimer les couches finales d’EfficientNet-B0
+% (Les noms des dernières couches peuvent varier selon la version MATLAB)
+lgraph = removeLayers(lgraph, {'efficientnet-b0|model|head|dense|MatMul', ...
+                               'efficientnet-b0|model|head|dense|BiasAdd', ...
+                               'ClassificationLayer_predictions'});
 
 % Nouvelles couches de classification
 newLayers = [
@@ -63,8 +66,8 @@ newLayers = [
 
 lgraph = addLayers(lgraph,newLayers);
 
-% Connexion du dernier bloc DenseNet201 au nouveau fullyConnectedLayer
-lgraph = connectLayers(lgraph,'avg_pool','fc_mid');
+% Connexion du dernier bloc EfficientNet-B0 au nouveau fullyConnectedLayer
+lgraph = connectLayers(lgraph,'efficientnet-b0|model|head|global_pool','fc_mid');
 
 %% =====================================================================
 % Fine-tuning : débloquer les dernières couches
@@ -107,5 +110,5 @@ netTransfer = trainNetwork(augTrain, lgraph, options);
 %% =====================================================================
 % Sauvegarde
 % =====================================================================
-save('trainedFoodNet.mat','netTransfer');
-disp('Entraînement terminé');
+save('trainedFoodNet_EfficientNetB0.mat','netTransfer');
+disp('Entraînement EfficientNet-B0 terminé');
