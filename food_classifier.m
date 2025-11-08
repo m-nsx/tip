@@ -1,5 +1,5 @@
 %% =====================================================================
-% Entraînement EfficientNet-B0
+% Réseau léger "ReLU-Net" entraîné depuis zéro
 % =====================================================================
 
 close all
@@ -14,101 +14,81 @@ imds = imageDatastore(trainFolder, ...
     'LabelSource', 'foldernames');
 
 [imdsTrain, imdsValidation] = splitEachLabel(imds, 0.85, 'randomized');
-
-%% =====================================================================
-% Chargement EfficientNet-B0 pré-entraîné
-% =====================================================================
-net = efficientnetb0;
-inputSize = net.Layers(1).InputSize;  % [224 224 3]
-
-%% =====================================================================
-% Data augmentation géométrique
-% =====================================================================
-imageAugmenter = imageDataAugmenter( ...
-    'RandRotation', [-20 20], ...
-    'RandXTranslation', [-10 10], ...
-    'RandYTranslation', [-10 10], ...
-    'RandXScale', [0.85 1.15], ...
-    'RandYScale', [0.85 1.15], ...
-    'RandXReflection', true);
-
-augTrain = augmentedImageDatastore(inputSize(1:2), imdsTrain, ...
-    'DataAugmentation', imageAugmenter, ...
-    'OutputSizeMode', 'resize', ...
-    'DispatchInBackground', true);
-
-augValidation = augmentedImageDatastore(inputSize(1:2), imdsValidation, ...
-    'OutputSizeMode', 'resize');
-
-%% =====================================================================
-% Personnalisation des couches finales
-% =====================================================================
-lgraph = layerGraph(net);
 numClasses = numel(categories(imdsTrain.Labels));
 
-% ✅ Supprimer les couches finales d’EfficientNet-B0
-% (Les noms des dernières couches peuvent varier selon la version MATLAB)
-lgraph = removeLayers(lgraph, {'efficientnet-b0|model|head|dense|MatMul', ...
-                               'efficientnet-b0|model|head|dense|BiasAdd', ...
-                               'ClassificationLayer_predictions'});
-
-% Nouvelles couches de classification
-newLayers = [
-    fullyConnectedLayer(1024,'Name','fc_mid', ...
-        'WeightLearnRateFactor',5,'BiasLearnRateFactor',5)
-    reluLayer('Name','relu_mid')
-    dropoutLayer(0.5,'Name','dropout_food')
-    fullyConnectedLayer(numClasses,'Name','fc_food', ...
-        'WeightLearnRateFactor',10,'BiasLearnRateFactor',10)
-    softmaxLayer('Name','softmax')
-    classificationLayer('Name','output')
-];
-
-lgraph = addLayers(lgraph,newLayers);
-
-% Connexion du dernier bloc EfficientNet-B0 au nouveau fullyConnectedLayer
-lgraph = connectLayers(lgraph,'efficientnet-b0|model|head|global_pool','fc_mid');
+%% =====================================================================
+% Paramètres de base
+% =====================================================================
+inputSize = [128 128 3];  % 🔹 plus petit que 224 pour aller plus vite
 
 %% =====================================================================
-% Fine-tuning : débloquer les dernières couches
+% Réseau convolutionnel léger avec ReLU
 % =====================================================================
-layersToUnfreeze = 10;
-for i = numel(lgraph.Layers)-layersToUnfreeze:numel(lgraph.Layers)
-    layer = lgraph.Layers(i);
-    if isprop(layer,'WeightLearnRateFactor')
-        layer.WeightLearnRateFactor = 2;
-        layer.BiasLearnRateFactor = 2;
-    end
-end
+layers = [
+    imageInputLayer(inputSize, 'Name', 'input', 'Normalization', 'zscore')
+    
+    % --- Bloc 1 ---
+    convolution2dLayer(3, 16, 'Padding', 'same', 'Stride', 1, 'Name', 'conv1')
+    batchNormalizationLayer('Name', 'bn1')
+    reluLayer('Name', 'relu1')
+    maxPooling2dLayer(2, 'Stride', 2, 'Name', 'pool1')
+    
+    % --- Bloc 2 ---
+    convolution2dLayer(3, 32, 'Padding', 'same', 'Stride', 1, 'Name', 'conv2')
+    batchNormalizationLayer('Name', 'bn2')
+    reluLayer('Name', 'relu2')
+    maxPooling2dLayer(2, 'Stride', 2, 'Name', 'pool2')
+    
+    % --- Bloc 3 ---
+    convolution2dLayer(3, 64, 'Padding', 'same', 'Stride', 1, 'Name', 'conv3')
+    batchNormalizationLayer('Name', 'bn3')
+    reluLayer('Name', 'relu3')
+    maxPooling2dLayer(2, 'Stride', 2, 'Name', 'pool3')
+    
+    % --- Bloc fully connected ---
+    fullyConnectedLayer(128, 'Name', 'fc1')
+    reluLayer('Name', 'relu_fc1')
+    dropoutLayer(0.5, 'Name', 'dropout')
+    
+    % --- Sortie ---
+    fullyConnectedLayer(numClasses, 'Name', 'fc_out')
+    softmaxLayer('Name', 'softmax')
+    classificationLayer('Name', 'output')
+];
+
+%% =====================================================================
+% Data augmentation légère
+% =====================================================================
+imageAugmenter = imageDataAugmenter( ...
+    'RandXReflection', true, ...
+    'RandRotation', [-10 10]);
+
+augTrain = augmentedImageDatastore(inputSize(1:2), imdsTrain, ...
+    'DataAugmentation', imageAugmenter);
+
+augValidation = augmentedImageDatastore(inputSize(1:2), imdsValidation);
 
 %% =====================================================================
 % Options d'entraînement
 % =====================================================================
-miniBatchSize = 32;
-
 options = trainingOptions('adam', ...
-    'MiniBatchSize', miniBatchSize, ...
-    'MaxEpochs', 20, ...
-    'InitialLearnRate', 3e-5, ...
-    'LearnRateSchedule', 'piecewise', ...
-    'LearnRateDropFactor', 0.3, ...
-    'LearnRateDropPeriod', 5, ...
+    'MiniBatchSize', 32, ...
+    'MaxEpochs', 25, ...
+    'InitialLearnRate', 1e-3, ...
     'Shuffle', 'every-epoch', ...
     'ValidationData', augValidation, ...
     'ValidationFrequency', 100, ...
     'Verbose', false, ...
-    'ExecutionEnvironment', 'auto', ...
     'Plots', 'training-progress', ...
-    'L2Regularization', 1e-4, ...
-    'ValidationPatience', 5);
+    'ExecutionEnvironment', 'auto');
 
 %% =====================================================================
-% Entraînement
+% Entraînement du modèle
 % =====================================================================
-netTransfer = trainNetwork(augTrain, lgraph, options);
+netLightReLU = trainNetwork(augTrain, layers, options);
 
 %% =====================================================================
 % Sauvegarde
 % =====================================================================
-save('trainedFoodNet_EfficientNetB0.mat','netTransfer');
-disp('Entraînement EfficientNet-B0 terminé');
+save('ReLU_Net_Light.mat', 'netLightReLU');
+disp('✅ Entraînement du réseau léger ReLU terminé');
