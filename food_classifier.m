@@ -1,5 +1,5 @@
 %% =====================================================================
-% Entraînement DenseNet201
+% Entraînement EfficientNet-B0
 % =====================================================================
 
 close all
@@ -16,9 +16,11 @@ imds = imageDatastore(trainFolder, ...
 [imdsTrain, imdsValidation] = splitEachLabel(imds, 0.85, 'randomized');
 
 %% =====================================================================
-% Chargement DenseNet201 pré-entraîné
+% Chargement EfficientNet-B0 pré-entraîné
 % =====================================================================
-net = densenet201;
+net = efficientnetb0;
+lgraph = layerGraph(net);
+disp({lgraph.Layers(end-10:end).Name}')
 inputSize = net.Layers(1).InputSize;  % [224 224 3]
 
 %% =====================================================================
@@ -46,8 +48,11 @@ augValidation = augmentedImageDatastore(inputSize(1:2), imdsValidation, ...
 lgraph = layerGraph(net);
 numClasses = numel(categories(imdsTrain.Labels));
 
-% ✅ Supprimer LES TROIS couches finales existantes
-lgraph = removeLayers(lgraph, {'fc1000', 'fc1000_softmax', 'ClassificationLayer_fc1000'});
+% ✅ Supprimer les couches finales d’EfficientNet-B0
+% (Les noms des dernières couches peuvent varier selon la version MATLAB)
+lgraph = removeLayers(lgraph, {'efficientnet-b0|model|head|dense|MatMul', ...
+                               'Softmax', ...
+                               'classification'});
 
 % Nouvelles couches de classification
 newLayers = [
@@ -63,8 +68,8 @@ newLayers = [
 
 lgraph = addLayers(lgraph,newLayers);
 
-% Connexion du dernier bloc DenseNet201 au nouveau fullyConnectedLayer
-lgraph = connectLayers(lgraph,'avg_pool','fc_mid');
+% Connexion du dernier bloc EfficientNet-B0 au nouveau fullyConnectedLayer
+lgraph = connectLayers(lgraph,'efficientnet-b0|model|head|global_average_pooling2d|GlobAvgPool','fc_mid');
 
 %% =====================================================================
 % Fine-tuning : débloquer les dernières couches
@@ -81,22 +86,22 @@ end
 %% =====================================================================
 % Options d'entraînement
 % =====================================================================
-miniBatchSize = 32;
+miniBatchSize = 16;
 
 options = trainingOptions('adam', ...
     'MiniBatchSize', miniBatchSize, ...
     'MaxEpochs', 20, ...
-    'InitialLearnRate', 3e-5, ...
+    'InitialLearnRate', 2e-5, ...
     'LearnRateSchedule', 'piecewise', ...
-    'LearnRateDropFactor', 0.3, ...
-    'LearnRateDropPeriod', 5, ...
+    'LearnRateDropFactor', 0.25, ...
+    'LearnRateDropPeriod', 2, ...
     'Shuffle', 'every-epoch', ...
     'ValidationData', augValidation, ...
     'ValidationFrequency', 100, ...
     'Verbose', false, ...
     'ExecutionEnvironment', 'auto', ...
     'Plots', 'training-progress', ...
-    'L2Regularization', 1e-4, ...
+    'L2Regularization', 1e-3, ...
     'ValidationPatience', 5);
 
 %% =====================================================================
@@ -108,4 +113,4 @@ netTransfer = trainNetwork(augTrain, lgraph, options);
 % Sauvegarde
 % =====================================================================
 save('trainedFoodNet.mat','netTransfer');
-disp('Entraînement terminé');
+disp('Entraînement EfficientNet-B0 terminé');

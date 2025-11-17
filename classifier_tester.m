@@ -1,7 +1,9 @@
 close all
 clc
 
-fprint("")
+% =====================================================================
+% TEST DU MODÈLE CNN (ResNet-18 transféré)
+% =====================================================================
 
 % Charger le réseau entraîné
 load('trainedFoodNet.mat', 'netTransfer')
@@ -24,25 +26,24 @@ augTest = augmentedImageDatastore(inputSize, imdsTest);
 % Classification du jeu de test
 % =====================================================================
 
-[predictedLabels, scores] = classify(netTransfer, augTest);
+fprintf('Classification en cours (%d images)...\n', numel(imdsTest.Files));
+
+predictedLabels = classify(netTransfer, augTest);
 trueLabels = imdsTest.Labels;
 
 % =====================================================================
-% Création d'une table de résultats
+% Création du tableau de résultats (clé = fichier, valeur = catégorie)
 % =====================================================================
 
-results = struct('filename', {}, 'predicted', {}, 'confidence', {});
+results = struct('filename', {}, 'predicted', {});
 
 for i = 1:numel(imdsTest.Files)
     [~, name, ext] = fileparts(imdsTest.Files{i});
-    fileKey = strcat(name, ext);
-    [~, maxIdx] = max(scores(i,:));
-    conf = scores(i,maxIdx);
-    results(end+1) = struct( ...
-        'filename', fileKey, ...
-        'predicted', char(predictedLabels(i)), ...
-        'confidence', conf ...
-    );
+    fileKey = strcat(name, ext); % ex: "0.jpg"
+    predicted = char(predictedLabels(i));
+
+    results(i).filename = fileKey;
+    results(i).predicted = predicted;
 end
 
 % =====================================================================
@@ -54,11 +55,14 @@ fid = fopen('test_results.json', 'w');
 fwrite(fid, jsonStr, 'char');
 fclose(fid);
 
+fprintf('Résultats sauvegardés dans "test_results.json"\n');
+
 % =====================================================================
 % Fonction d’affichage aléatoire de 16 images
 % =====================================================================
 
-function afficherEchantillon(imdsTest, predictedLabels, scores)
+function afficherEchantillon(imdsTest, predictedLabels)
+    % Sélection aléatoire de 16 images
     idx = randperm(numel(imdsTest.Files), 16);
 
     figure('Name','Échantillon des prédictions','NumberTitle','off')
@@ -68,10 +72,7 @@ function afficherEchantillon(imdsTest, predictedLabels, scores)
         nexttile
         img = readimage(imdsTest, idx(i));
         imshow(img)
-        [~, maxIdx] = max(scores(idx(i),:));
-        conf = scores(idx(i), maxIdx) * 100;
-        title(sprintf('%s (%.1f%%)', string(predictedLabels(idx(i))), conf), ...
-            'Interpreter','none', 'FontSize', 9)
+        title(string(predictedLabels(idx(i))), 'Interpreter','none', 'FontSize', 10)
     end
 end
 
@@ -79,9 +80,9 @@ end
 % Interaction utilisateur : afficher un échantillon quand on appuie sur une touche
 % =====================================================================
 
-disp('Appuyer sur une touche')
+disp('Appuyer sur une touche pour afficher un échantillon aléatoire (Ctrl+C pour quitter)')
 
 while true
     pause
-    afficherEchantillon(imdsTest, predictedLabels, scores)
+    afficherEchantillon(imdsTest, predictedLabels)
 end
